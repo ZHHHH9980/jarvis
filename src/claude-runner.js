@@ -68,6 +68,16 @@ async function executeCCM(intent, params) {
           method: 'POST', signal: AbortSignal.timeout(8000),
         });
         break;
+      case 'delete_project':
+        r = await fetch(`${CCM_URL}/api/projects/${params.projectId}`, {
+          method: 'DELETE', signal: AbortSignal.timeout(8000),
+        });
+        break;
+      case 'delete_task':
+        r = await fetch(`${CCM_URL}/api/tasks/${params.taskId}`, {
+          method: 'DELETE', signal: AbortSignal.timeout(8000),
+        });
+        break;
       default:
         return null;
     }
@@ -156,11 +166,16 @@ async function chatAPI(prompt, systemPrompt, history = []) {
     return callLLM([{ role: 'user', content: chatPrompt }]);
   }
 
-  // Delete operations - CCM doesn't support DELETE yet
-  if (intent === 'delete_project' || intent === 'delete_task') {
-    const what = intent === 'delete_project' ? '项目' : '任务';
-    const name = params.projectName || params.name || params.taskName || params.taskId || '未知';
-    return `抱歉，CCM 目前不支持删除${what}。你提到的「${name}」需要在 CCM 后台手动删除，或者等 CCM 加上删除接口。`;
+  // Delete operations - resolve names to IDs first
+  if (intent === 'delete_project' && !params.projectId && params.projectName) {
+    const proj = await resolveProjectName(params.projectName);
+    if (proj) params.projectId = proj.id;
+    else return `找不到项目「${params.projectName}」，无法删除。`;
+  }
+  if (intent === 'delete_task' && !params.taskId && params.taskName) {
+    const task = await resolveTaskName(params.taskName, params.projectId);
+    if (task) params.taskId = task.id;
+    else return `找不到任务「${params.taskName}」，无法删除。`;
   }
 
   // Clear context

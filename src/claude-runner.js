@@ -20,7 +20,9 @@ function chunkMessage(text, maxLen = 4000) {
 
 // --- Intent classification prompt ---
 const INTENT_PROMPT = `分析这句话的意图，只返回一个 JSON 对象，不要其他文字。
-可能的 intent: chat, list_projects, list_tasks, create_project, create_task, start_task, stop_task, delete_project, delete_task。
+可能的 intent: chat, list_projects, list_tasks, create_project, create_task, start_task, stop_task, delete_project, delete_task, clear_context, check_status。
+clear_context = 用户想清空聊天记录、上下文、对话历史。
+check_status = 用户想看 CCM 整体状态（项目+任务概览）。
 如果有参数也提取出来（name, repo_path, title, projectId, projectName, branch, taskId, taskName）。
 如果用户提到项目名而不是 ID，用 projectName 字段。如果提到任务名而不是 ID，用 taskName 字段。
 如果用户用代词（它、这个、那个）指代之前提到的东西，根据对话上下文推断具体指什么。
@@ -141,10 +143,17 @@ async function chatAPI(prompt, systemPrompt, history = []) {
   const params = { ..._p, ...rest };
   console.log(`[intent] ${intent}`, JSON.stringify(params));
 
-  // For plain chat, respond with history context
+  // For plain chat, respond with history baked into the prompt
+  // (Relay has Kiro system prompt that overrides context, so we embed history in user message)
   if (intent === 'chat') {
-    const msgs = [...recentHistory, { role: 'user', content: prompt }];
-    return callLLM(msgs);
+    let chatPrompt = prompt;
+    if (recentHistory.length > 0) {
+      const ctx = recentHistory.map((m) =>
+        `${m.role === 'user' ? '用户' : 'Jarvis'}：${m.content.slice(0, 300)}`
+      ).join('\n');
+      chatPrompt = `以下是之前的对话记录：\n${ctx}\n\n用户现在说：${prompt}\n\n请根据对话上下文回答。`;
+    }
+    return callLLM([{ role: 'user', content: chatPrompt }]);
   }
 
   // Delete operations - CCM doesn't support DELETE yet
@@ -152,6 +161,27 @@ async function chatAPI(prompt, systemPrompt, history = []) {
     const what = intent === 'delete_project' ? '项目' : '任务';
     const name = params.projectName || params.name || params.taskName || params.taskId || '未知';
     return `抱歉，CCM 目前不支持删除${what}。你提到的「${name}」需要在 CCM 后台手动删除，或者等 CCM 加上删除接口。`;
+  }
+
+  // Clear context
+  if (intent === 'clear_context') {
+    return '__CLEAR_CONTEXT__';
+  }
+
+  // Check status - combined projects + tasks overview
+  if (intent === 'check_status') {
+    const [projects, tasks] = await Promise.all([
+      executeCCM('list_projects', {}),
+      executeCCM('list_tasks', {}),
+    ]);
+    const result = { projects, tasks };
+    const summaryMsgs = [
+      ...recentHistory,
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: `CCM 状态：\n项目：${JSON.stringify(projects)}\n任务：${JSON.stringify(tasks)}` },
+      { role: 'user', content: '请用简洁自然的中文总结 CCM 的整体状态' },
+    ];
+    return callLLM(summaryMsgs);
   }
 
   // Resolve names to IDs if needed
@@ -165,6 +195,13 @@ async function chatAPI(prompt, systemPrompt, history = []) {
   }
 
   // Phase 2: Execute CCM operation
+  // Guard against missing required params
+  if (intent === 'create_project' && !params.name && !params.projectName) {
+    return '创建项目需要名称和路径。比如说：「创建一个项目叫 my-app，路径 /opt/my-app」';
+  }
+  if (intent === 'create_task' && !params.title) {
+    return '创建任务需要标题、项目和分支。比如说：「给 my-app 创建任务叫 fix-bug，分支 fix/bug-1」';
+  }
   const result = await executeCCM(intent, params);
 
   // Phase 3: Summarize results with conversation context

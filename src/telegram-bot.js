@@ -159,6 +159,14 @@ function createBot(token, chatId, db) {
       // Pass conversation history for context
       const output = await chatAPI(text, sys, state.chatHistory);
 
+      // Handle clear context
+      if (output === '__CLEAR_CONTEXT__') {
+        state.chatHistory = [];
+        state.currentProject = null;
+        bot.sendMessage(numericChatId, '好的，已清空对话记录和上下文。');
+        return;
+      }
+
       // Store in history (keep last 20 messages)
       state.chatHistory.push({ role: 'user', content: text });
       state.chatHistory.push({ role: 'assistant', content: output });

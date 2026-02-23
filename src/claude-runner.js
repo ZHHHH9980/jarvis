@@ -73,6 +73,18 @@ const TOOLS = [
       required: ['taskId'],
     },
   },
+  {
+    name: 'ccm_create_project',
+    description: '在 CCM 上创建新项目',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '项目名称' },
+        repo_path: { type: 'string', description: '服务器上的仓库路径' },
+      },
+      required: ['name', 'repo_path'],
+    },
+  },
 ];
 
 // --- Tool execution ---
@@ -109,6 +121,15 @@ async function executeTool(name, input) {
       case 'ccm_stop_task': {
         const r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/stop`, {
           method: 'POST',
+          signal: AbortSignal.timeout(8000),
+        });
+        return await r.json();
+      }
+      case 'ccm_create_project': {
+        const r = await fetch(`${CCM_URL}/api/projects`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input),
           signal: AbortSignal.timeout(8000),
         });
         return await r.json();

@@ -89,53 +89,47 @@ const TOOLS = [
 
 // --- Tool execution ---
 async function executeTool(name, input) {
+  console.log(`[tool] ${name}`, JSON.stringify(input));
   try {
+    let r;
     switch (name) {
-      case 'ccm_projects': {
-        const r = await fetch(`${CCM_URL}/api/projects`, { signal: AbortSignal.timeout(8000) });
-        return await r.json();
-      }
+      case 'ccm_projects':
+        r = await fetch(`${CCM_URL}/api/projects`, { signal: AbortSignal.timeout(8000) });
+        break;
       case 'ccm_tasks': {
         const q = input.projectId ? `?projectId=${input.projectId}` : '';
-        const r = await fetch(`${CCM_URL}/api/tasks${q}`, { signal: AbortSignal.timeout(8000) });
-        return await r.json();
+        r = await fetch(`${CCM_URL}/api/tasks${q}`, { signal: AbortSignal.timeout(8000) });
+        break;
       }
-      case 'ccm_create_task': {
-        const r = await fetch(`${CCM_URL}/api/tasks`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input),
-          signal: AbortSignal.timeout(8000),
+      case 'ccm_create_task':
+        r = await fetch(`${CCM_URL}/api/tasks`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input), signal: AbortSignal.timeout(8000),
         });
-        return await r.json();
-      }
-      case 'ccm_start_task': {
-        const r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/start`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input),
-          signal: AbortSignal.timeout(8000),
+        break;
+      case 'ccm_start_task':
+        r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/start`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input), signal: AbortSignal.timeout(8000),
         });
-        return await r.json();
-      }
-      case 'ccm_stop_task': {
-        const r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/stop`, {
-          method: 'POST',
-          signal: AbortSignal.timeout(8000),
+        break;
+      case 'ccm_stop_task':
+        r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/stop`, {
+          method: 'POST', signal: AbortSignal.timeout(8000),
         });
-        return await r.json();
-      }
-      case 'ccm_create_project': {
-        const r = await fetch(`${CCM_URL}/api/projects`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input),
-          signal: AbortSignal.timeout(8000),
+        break;
+      case 'ccm_create_project':
+        r = await fetch(`${CCM_URL}/api/projects`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input), signal: AbortSignal.timeout(8000),
         });
-        return await r.json();
-      }
+        break;
       default:
         return { error: `unknown tool: ${name}` };
+    }
+    const text = await r.text();
+    console.log(`[tool] ${name} -> ${r.status}: ${text.slice(0, 200)}`);
+    try { return JSON.parse(text); } catch { return { raw: text, status: r.status }; }
     }
   } catch (err) {
     return { error: err.message };

@@ -20,9 +20,10 @@ function chunkMessage(text, maxLen = 4000) {
 
 // --- Intent classification prompt ---
 const INTENT_PROMPT = `分析这句话的意图，只返回一个 JSON 对象，不要其他文字。
-可能的 intent: chat, list_projects, list_tasks, create_project, create_task, start_task, stop_task, delete_project, delete_task, clear_context, check_status。
+可能的 intent: chat, list_projects, list_tasks, create_project, update_project, create_task, start_task, stop_task, delete_project, delete_task, clear_context, check_status。
 clear_context = 用户想清空聊天记录、上下文、对话历史。
 check_status = 用户想看 CCM 整体状态（项目+任务概览）。
+update_project = 用户想修改项目信息（比如关联仓库地址、修改路径、改名等）。
 如果有参数也提取出来（name, repo_path, title, projectId, projectName, branch, taskId, taskName）。
 如果用户提到项目名而不是 ID，用 projectName 字段。如果提到任务名而不是 ID，用 taskName 字段。
 如果用户用代词（它、这个、那个）指代之前提到的东西，根据对话上下文推断具体指什么。
@@ -78,6 +79,16 @@ async function executeCCM(intent, params) {
           method: 'DELETE', signal: AbortSignal.timeout(8000),
         });
         break;
+      case 'update_project': {
+        const body = {};
+        if (params.name) body.name = params.name;
+        if (params.repo_path) body.repo_path = params.repo_path;
+        r = await fetch(`${CCM_URL}/api/projects/${params.projectId}`, {
+          method: 'PUT', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
+        });
+        break;
+      }
       default:
         return null;
     }
@@ -176,6 +187,13 @@ async function chatAPI(prompt, systemPrompt, history = []) {
     const task = await resolveTaskName(params.taskName, params.projectId);
     if (task) params.taskId = task.id;
     else return `找不到任务「${params.taskName}」，无法删除。`;
+  }
+
+  // Update project - resolve name to ID
+  if (intent === 'update_project' && !params.projectId && params.projectName) {
+    const proj = await resolveProjectName(params.projectName);
+    if (proj) params.projectId = proj.id;
+    else return `找不到项目「${params.projectName}」，无法更新。`;
   }
 
   // Clear context

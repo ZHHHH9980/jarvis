@@ -18,173 +18,145 @@ function chunkMessage(text, maxLen = 4000) {
   return chunks.length ? chunks : [''];
 }
 
-// --- Tool definitions for Claude API ---
-const TOOLS = [
-  {
-    name: 'ccm_projects',
-    description: '获取 CCM 上的所有项目��表',
-    input_schema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'ccm_tasks',
-    description: '获取 CCM 上的任务列表，可按项目筛选',
-    input_schema: {
-      type: 'object',
-      properties: {
-        projectId: { type: 'string', description: '项目 ID（可选）' },
-      },
-    },
-  },
-  {
-    name: 'ccm_create_task',
-    description: '在 CCM 上创建新任务',
-    input_schema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: '任务标题' },
-        projectId: { type: 'string', description: '项目 ID' },
-        branch: { type: 'string', description: 'Git 分支名' },
-      },
-      required: ['title', 'projectId', 'branch'],
-    },
-  },
-  {
-    name: 'ccm_start_task',
-    description: '启动 CCM 上的一个任务（会创建 Claude Code 会话）',
-    input_schema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: '任务 ID' },
-        worktreePath: { type: 'string', description: '工作目录路径' },
-        branch: { type: 'string', description: 'Git 分支' },
-        model: { type: 'string', description: '模型名，默认 claude-sonnet-4-5' },
-      },
-      required: ['taskId', 'worktreePath', 'branch'],
-    },
-  },
-  {
-    name: 'ccm_stop_task',
-    description: '停止 CCM 上正在运行的任务',
-    input_schema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: '任务 ID' },
-      },
-      required: ['taskId'],
-    },
-  },
-  {
-    name: 'ccm_create_project',
-    description: '在 CCM 上创建新项目',
-    input_schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: '项目名称' },
-        repo_path: { type: 'string', description: '服务器上的仓库路径' },
-      },
-      required: ['name', 'repo_path'],
-    },
-  },
-];
+// --- Intent classification prompt ---
+const INTENT_PROMPT = `分析这句话的意图，只返回一个 JSON 对象，不要其他文字。
+可能的 intent: chat, list_projects, list_tasks, create_project, create_task, start_task, stop_task。
+如果有参数也提取出来（name, repo_path, title, projectId, projectName, branch, taskId, taskName）。
+如果用户提到项目名而不是 ID，用 projectName 字段。如果提到任务名而不是 ID，用 taskName 字段。
 
-// --- Tool execution ---
-async function executeTool(name, input) {
-  console.log(`[tool] ${name}`, JSON.stringify(input));
+用户说：`;
+
+// --- CCM API execution ---
+async function executeCCM(intent, params) {
+  console.log(`[ccm] ${intent}`, JSON.stringify(params));
   try {
     let r;
-    switch (name) {
-      case 'ccm_projects':
+    switch (intent) {
+      case 'list_projects':
         r = await fetch(`${CCM_URL}/api/projects`, { signal: AbortSignal.timeout(8000) });
         break;
-      case 'ccm_tasks': {
-        const q = input.projectId ? `?projectId=${input.projectId}` : '';
+      case 'list_tasks': {
+        const q = params.projectId ? `?projectId=${params.projectId}` : '';
         r = await fetch(`${CCM_URL}/api/tasks${q}`, { signal: AbortSignal.timeout(8000) });
         break;
       }
-      case 'ccm_create_task':
+      case 'create_project':
+        r = await fetch(`${CCM_URL}/api/projects`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: params.name, repo_path: params.repo_path || params.path || '' }),
+          signal: AbortSignal.timeout(8000),
+        });
+        break;
+      case 'create_task':
         r = await fetch(`${CCM_URL}/api/tasks`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input), signal: AbortSignal.timeout(8000),
+          body: JSON.stringify({ title: params.title, projectId: params.projectId, branch: params.branch }),
+          signal: AbortSignal.timeout(8000),
         });
         break;
-      case 'ccm_start_task':
-        r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/start`, {
+      case 'start_task':
+        r = await fetch(`${CCM_URL}/api/tasks/${params.taskId}/start`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input), signal: AbortSignal.timeout(8000),
+          body: JSON.stringify(params), signal: AbortSignal.timeout(8000),
         });
         break;
-      case 'ccm_stop_task':
-        r = await fetch(`${CCM_URL}/api/tasks/${input.taskId}/stop`, {
+      case 'stop_task':
+        r = await fetch(`${CCM_URL}/api/tasks/${params.taskId}/stop`, {
           method: 'POST', signal: AbortSignal.timeout(8000),
         });
         break;
-      case 'ccm_create_project':
-        r = await fetch(`${CCM_URL}/api/projects`, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input), signal: AbortSignal.timeout(8000),
-        });
-        break;
       default:
-        return { error: `unknown tool: ${name}` };
+        return null;
     }
     const text = await r.text();
-    console.log(`[tool] ${name} -> ${r.status}: ${text.slice(0, 200)}`);
+    console.log(`[ccm] ${intent} -> ${r.status}: ${text.slice(0, 200)}`);
     try { return JSON.parse(text); } catch { return { raw: text, status: r.status }; }
   } catch (err) {
     return { error: err.message };
   }
 }
 
-// Chat with tool use loop
+// Resolve projectName → projectId by looking up projects
+async function resolveProjectName(name) {
+  try {
+    const r = await fetch(`${CCM_URL}/api/projects`, { signal: AbortSignal.timeout(5000) });
+    const projects = await r.json();
+    const match = projects.find((p) => p.name === name || p.name.includes(name));
+    return match || null;
+  } catch { return null; }
+}
+
+// Resolve taskName → taskId by looking up tasks
+async function resolveTaskName(name, projectId) {
+  try {
+    const q = projectId ? `?projectId=${projectId}` : '';
+    const r = await fetch(`${CCM_URL}/api/tasks${q}`, { signal: AbortSignal.timeout(5000) });
+    const tasks = await r.json();
+    const match = tasks.find((t) => t.title === name || t.title.includes(name));
+    return match || null;
+  } catch { return null; }
+}
+
+// Call relay API for text generation
+async function callLLM(messages) {
+  const res = await fetch(`${API_BASE}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': API_TOKEN,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, messages }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+}
+
+// Two-phase chat: intent classification → execute → summarize
 async function chatAPI(prompt, systemPrompt) {
-  const messages = [{ role: 'user', content: prompt }];
+  // Phase 1: Classify intent
+  const intentText = await callLLM([{ role: 'user', content: INTENT_PROMPT + prompt }]);
+  console.log(`[intent] raw: ${intentText}`);
 
-  for (let i = 0; i < 5; i++) {
-    const body = {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      tools: TOOLS,
-      messages,
-    };
-    if (systemPrompt) body.system = systemPrompt;
-
-    const res = await fetch(`${API_BASE}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': API_TOKEN,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`API ${res.status}: ${err}`);
-    }
-
-    const data = await res.json();
-    const toolUses = data.content.filter((b) => b.type === 'tool_use');
-
-    if (toolUses.length === 0 || data.stop_reason === 'end_turn') {
-      return data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-    }
-
-    // Execute tools and continue
-    messages.push({ role: 'assistant', content: data.content });
-    const toolResults = [];
-    for (const tu of toolUses) {
-      const result = await executeTool(tu.name, tu.input);
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: tu.id,
-        content: JSON.stringify(result),
-      });
-    }
-    messages.push({ role: 'user', content: toolResults });
+  let parsed;
+  try {
+    const jsonMatch = intentText.match(/```json\s*([\s\S]*?)```/) || intentText.match(/(\{[\s\S]*\})/);
+    parsed = JSON.parse(jsonMatch[1].trim());
+  } catch {
+    parsed = { intent: 'chat' };
   }
 
-  return '(达到工具调用上限)';
+  const { intent, params: _p, ...rest } = parsed;
+  const params = { ..._p, ...rest };
+  console.log(`[intent] ${intent}`, JSON.stringify(params));
+
+  // For plain chat, just respond directly
+  if (intent === 'chat') {
+    return callLLM([{ role: 'user', content: prompt }]);
+  }
+
+  // Resolve names to IDs if needed
+  if (params.projectName && !params.projectId) {
+    const proj = await resolveProjectName(params.projectName);
+    if (proj) params.projectId = proj.id;
+  }
+  if (params.taskName && !params.taskId) {
+    const task = await resolveTaskName(params.taskName, params.projectId);
+    if (task) params.taskId = task.id;
+  }
+
+  // Phase 2: Execute CCM operation
+  const result = await executeCCM(intent, params);
+
+  // Phase 3: Summarize results
+  const summary = await callLLM([
+    { role: 'user', content: prompt },
+    { role: 'assistant', content: `我查询了 CCM，结果如下：\n${JSON.stringify(result, null, 2)}` },
+    { role: 'user', content: '请用简洁自然的中文总结上面的结果给我' },
+  ]);
+
+  return summary;
 }
 
 // CLI via SSH (fallback for heavy code work)

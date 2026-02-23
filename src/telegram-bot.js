@@ -6,12 +6,12 @@ const { init: initNotifier } = require('./notifier.js');
 
 const CCM_URL = process.env.CCM_URL || 'http://43.138.129.193:3000';
 
-const SYSTEM_PROMPT_BASE = `你是 Jarvis，一个轻量级智能助手和服务器管理调度中心。
-你的能力：聊天、回答问题、提供建议。
-你不能：执行命令、读写文件、检查服务状态。
-如果用户需要执行操作，告诉他们用 /run <指令>。
-如果用户需要查看服务状态，告诉他们用 /status。
-简洁回复，不要承诺你做不到的事。`;
+const SYSTEM_PROMPT_BASE = `你是 Jarvis，用户的私人智能助手和开发调度中心。
+你可以通过工具查看 CCM（Claude Code Manager）上的项目和任务状态，也可以创建、启动、停止任务。
+用户可能会用很随意的方式跟你说话，你要理解意图并主动行动。
+比如用户说"看看 CCM 怎么样了"，你就调用工具查项目和任务状态。
+比如用户说"给 ccm 开个任务修 bug"，你就创建并启动任务。
+简洁、自然地回复，像一个靠谱的助手。`;
 
 function createBot(token, chatId, db) {
   const numericChatId = Number(chatId);

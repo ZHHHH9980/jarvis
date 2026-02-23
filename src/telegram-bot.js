@@ -22,6 +22,7 @@ function createBot(token, chatId, db) {
     currentProject: null,
     waitingForSelection: false,
     projectList: [],
+    chatHistory: [], // Recent conversation for context (max 20 messages)
   };
 
   function auth(msg) {
@@ -147,7 +148,17 @@ function createBot(token, chatId, db) {
       const sys = state.currentProject
         ? `${SYSTEM_PROMPT_BASE}\n当前项目: ${state.currentProject.name} (${state.currentProject.path})`
         : SYSTEM_PROMPT_BASE;
-      const output = await chatAPI(text, sys);
+
+      // Pass conversation history for context
+      const output = await chatAPI(text, sys, state.chatHistory);
+
+      // Store in history (keep last 20 messages)
+      state.chatHistory.push({ role: 'user', content: text });
+      state.chatHistory.push({ role: 'assistant', content: output });
+      if (state.chatHistory.length > 20) {
+        state.chatHistory = state.chatHistory.slice(-20);
+      }
+
       const chunks = chunkMessage(output || '(empty)', 4000);
       for (const chunk of chunks) {
         await bot.sendMessage(numericChatId, chunk);

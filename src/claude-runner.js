@@ -20,11 +20,12 @@ function chunkMessage(text, maxLen = 4000) {
 
 // --- Intent classification prompt ---
 const INTENT_PROMPT = `分析这句话的意图，只返回一个 JSON 对象，不要其他文字。
-可能的 intent: chat, list_projects, list_tasks, create_project, create_task, start_task, stop_task。
+可能的 intent: chat, list_projects, list_tasks, create_project, create_task, start_task, stop_task, delete_project, delete_task。
 如果有参数也提取出来（name, repo_path, title, projectId, projectName, branch, taskId, taskName）。
 如果用户提到项目名而不是 ID，用 projectName 字段。如果提到任务名而不是 ID，用 taskName 字段。
+如果用户用代词（它、这个、那个）指代之前提到的东西，根据对话上下文推断具体指什么。
 
-用户说：`;
+`;
 
 // --- CCM API execution ---
 async function executeCCM(intent, params) {
@@ -43,7 +44,7 @@ async function executeCCM(intent, params) {
       case 'create_project':
         r = await fetch(`${CCM_URL}/api/projects`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: params.name, repo_path: params.repo_path || params.path || '' }),
+          body: JSON.stringify({ name: params.name || params.projectName, repo_path: params.repo_path || params.path || '' }),
           signal: AbortSignal.timeout(8000),
         });
         break;
@@ -114,9 +115,18 @@ async function callLLM(messages) {
 }
 
 // Two-phase chat: intent classification → execute → summarize
-async function chatAPI(prompt, systemPrompt) {
+async function chatAPI(prompt, systemPrompt, history = []) {
+  // Build context from recent history for intent classification
+  const recentHistory = history.slice(-6); // last 3 exchanges
+  let contextBlock = '';
+  if (recentHistory.length > 0) {
+    contextBlock = '对话上下文：\n' + recentHistory.map((m) =>
+      `${m.role === 'user' ? '用户' : 'Jarvis'}：${m.content.slice(0, 200)}`
+    ).join('\n') + '\n\n';
+  }
+
   // Phase 1: Classify intent
-  const intentText = await callLLM([{ role: 'user', content: INTENT_PROMPT + prompt }]);
+  const intentText = await callLLM([{ role: 'user', content: INTENT_PROMPT + contextBlock + '用户说：' + prompt }]);
   console.log(`[intent] raw: ${intentText}`);
 
   let parsed;
@@ -131,9 +141,17 @@ async function chatAPI(prompt, systemPrompt) {
   const params = { ..._p, ...rest };
   console.log(`[intent] ${intent}`, JSON.stringify(params));
 
-  // For plain chat, just respond directly
+  // For plain chat, respond with history context
   if (intent === 'chat') {
-    return callLLM([{ role: 'user', content: prompt }]);
+    const msgs = [...recentHistory, { role: 'user', content: prompt }];
+    return callLLM(msgs);
+  }
+
+  // Delete operations - CCM doesn't support DELETE yet
+  if (intent === 'delete_project' || intent === 'delete_task') {
+    const what = intent === 'delete_project' ? '项目' : '任务';
+    const name = params.projectName || params.name || params.taskName || params.taskId || '未知';
+    return `抱歉，CCM 目前不支持删除${what}。你提到的「${name}」需要在 CCM 后台手动删除，或者等 CCM 加上删除接口。`;
   }
 
   // Resolve names to IDs if needed
@@ -149,12 +167,14 @@ async function chatAPI(prompt, systemPrompt) {
   // Phase 2: Execute CCM operation
   const result = await executeCCM(intent, params);
 
-  // Phase 3: Summarize results
-  const summary = await callLLM([
+  // Phase 3: Summarize results with conversation context
+  const summaryMsgs = [
+    ...recentHistory,
     { role: 'user', content: prompt },
     { role: 'assistant', content: `我查询了 CCM，结果如下：\n${JSON.stringify(result, null, 2)}` },
     { role: 'user', content: '请用简洁自然的中文总结上面的结果给我' },
-  ]);
+  ];
+  const summary = await callLLM(summaryMsgs);
 
   return summary;
 }

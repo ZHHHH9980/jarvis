@@ -18,7 +18,7 @@ function runClaude(prompt, cwd, onChunk) {
     if (SSH_HOST) {
       // Remote execution via SSH
       const escaped = prompt.replace(/'/g, "'\\''");
-      const cmd = `cd '${cwd}' && claude --print '${escaped}'`;
+      const cmd = `source ~/.bashrc 2>/dev/null; cd '${cwd}' && claude --print '${escaped}'`;
       proc = spawn('ssh', [
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'ConnectTimeout=10',

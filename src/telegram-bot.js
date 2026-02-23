@@ -29,6 +29,13 @@ function createBot(token, chatId, db) {
     return msg.chat.id === numericChatId;
   }
 
+  bot.onText(/\/clear/, (msg) => {
+    if (!auth(msg)) return;
+    state.chatHistory = [];
+    state.currentProject = null;
+    bot.sendMessage(numericChatId, '已清空对话记录和上下文。');
+  });
+
   bot.onText(/\/projects/, (msg) => {
     if (!auth(msg)) return;
     const projects = db.getProjects();

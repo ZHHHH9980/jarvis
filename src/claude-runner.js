@@ -22,7 +22,7 @@ function chunkMessage(text, maxLen = 4000) {
 async function chatAPI(prompt, systemPrompt) {
   const messages = [{ role: 'user', content: prompt }];
   const body = {
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     messages,
   };

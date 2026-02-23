@@ -1,6 +1,6 @@
-import { spawn } from 'child_process';
+const { spawn } = require('child_process');
 
-export function chunkMessage(text, maxLen = 4000) {
+function chunkMessage(text, maxLen = 4000) {
   const chunks = [];
   for (let i = 0; i < text.length; i += maxLen) {
     chunks.push(text.slice(i, i + maxLen));
@@ -8,7 +8,7 @@ export function chunkMessage(text, maxLen = 4000) {
   return chunks.length ? chunks : [''];
 }
 
-export function runClaude(prompt, cwd, onChunk) {
+function runClaude(prompt, cwd, onChunk) {
   return new Promise((resolve, reject) => {
     const args = ['--print', prompt];
     const proc = spawn('claude', args, {
@@ -37,3 +37,5 @@ export function runClaude(prompt, cwd, onChunk) {
     proc.on('error', (err) => reject(err));
   });
 }
+
+module.exports = { runClaude, chunkMessage };

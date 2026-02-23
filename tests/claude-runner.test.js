@@ -1,5 +1,4 @@
-import { describe, it, expect } from 'vitest';
-import { chunkMessage } from '../src/claude-runner.js';
+const { chunkMessage } = require('../src/claude-runner.js');
 
 describe('claude-runner', () => {
   it('chunks long messages at 4000 chars', () => {

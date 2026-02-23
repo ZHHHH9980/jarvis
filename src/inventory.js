@@ -1,8 +1,8 @@
-import fs from 'fs';
-import path from 'path';
-import { execSync } from 'child_process';
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 
-export function scanDirectory(dir, maxDepth = 3) {
+function scanDirectory(dir, maxDepth = 3) {
   const assets = [];
   walk(dir, 0, maxDepth, assets);
   return assets;
@@ -46,7 +46,7 @@ function getGitRemote(dir) {
   } catch { return ''; }
 }
 
-export function scanServices() {
+function scanServices() {
   const services = [];
   try {
     const pm2Out = execSync('pm2 jlist', { encoding: 'utf8' });
@@ -62,3 +62,5 @@ export function scanServices() {
   } catch {}
   return services;
 }
+
+module.exports = { scanDirectory, scanServices };

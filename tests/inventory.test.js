@@ -1,8 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { scanDirectory } from '../src/inventory.js';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+const { scanDirectory } = require('../src/inventory.js');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 describe('inventory', () => {
   it('finds .db files', () => {

@@ -130,7 +130,6 @@ async function executeTool(name, input) {
     const text = await r.text();
     console.log(`[tool] ${name} -> ${r.status}: ${text.slice(0, 200)}`);
     try { return JSON.parse(text); } catch { return { raw: text, status: r.status }; }
-    }
   } catch (err) {
     return { error: err.message };
   }

@@ -23,7 +23,8 @@ function runClaude(prompt, cwd, onChunk) {
     if (SSH_HOST) {
       // Remote execution via SSH (-tt forces TTY, required by claude CLI)
       const escaped = prompt.replace(/'/g, "'\\''");
-      const cmd = `source ~/.bashrc 2>/dev/null; cd '${cwd}' && claude --print '${escaped}'`;
+      const tools = 'Bash,Read,Write,Edit,Glob,Grep';
+      const cmd = `source ~/.bashrc 2>/dev/null; cd '${cwd}' && claude --print --allowedTools '${tools}' '${escaped}'`;
       proc = spawn('ssh', [
         '-tt',
         '-o', 'StrictHostKeyChecking=no',

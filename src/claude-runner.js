@@ -3,6 +3,11 @@ const { spawn } = require('child_process');
 const SSH_HOST = process.env.SSH_HOST || '';
 const SSH_USER = process.env.SSH_USER || 'root';
 
+// Strip ANSI escape codes from TTY output
+function stripAnsi(str) {
+  return str.replace(/\x1B\[[^@-~]*[@-~]|\x1B\][^\x07]*\x07|\x1B[^[\]].|\r/g, '');
+}
+
 function chunkMessage(text, maxLen = 4000) {
   const chunks = [];
   for (let i = 0; i < text.length; i += maxLen) {
@@ -16,10 +21,11 @@ function runClaude(prompt, cwd, onChunk) {
     let proc;
 
     if (SSH_HOST) {
-      // Remote execution via SSH
+      // Remote execution via SSH (-tt forces TTY, required by claude CLI)
       const escaped = prompt.replace(/'/g, "'\\''");
       const cmd = `source ~/.bashrc 2>/dev/null; cd '${cwd}' && claude --print '${escaped}'`;
       proc = spawn('ssh', [
+        '-tt',
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'ConnectTimeout=10',
         `${SSH_USER}@${SSH_HOST}`,
@@ -47,8 +53,9 @@ function runClaude(prompt, cwd, onChunk) {
     });
 
     proc.on('close', (code) => {
-      if (code === 0) resolve(output);
-      else reject(new Error(`claude exited with code ${code}: ${output}`));
+      const clean = SSH_HOST ? stripAnsi(output).trim() : output;
+      if (code === 0) resolve(clean);
+      else reject(new Error(`claude exited with code ${code}: ${clean}`));
     });
 
     proc.on('error', (err) => reject(err));

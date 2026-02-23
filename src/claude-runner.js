@@ -1,5 +1,8 @@
 const { spawn } = require('child_process');
 
+const SSH_HOST = process.env.SSH_HOST || '';
+const SSH_USER = process.env.SSH_USER || 'root';
+
 function chunkMessage(text, maxLen = 4000) {
   const chunks = [];
   for (let i = 0; i < text.length; i += maxLen) {
@@ -10,12 +13,26 @@ function chunkMessage(text, maxLen = 4000) {
 
 function runClaude(prompt, cwd, onChunk) {
   return new Promise((resolve, reject) => {
-    const args = ['--print', prompt];
-    const proc = spawn('claude', args, {
-      cwd,
-      env: { ...process.env },
-      shell: true,
-    });
+    let proc;
+
+    if (SSH_HOST) {
+      // Remote execution via SSH
+      const escaped = prompt.replace(/'/g, "'\\''");
+      const cmd = `cd '${cwd}' && claude --print '${escaped}'`;
+      proc = spawn('ssh', [
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'ConnectTimeout=10',
+        `${SSH_USER}@${SSH_HOST}`,
+        cmd,
+      ]);
+    } else {
+      // Local execution
+      proc = spawn('claude', ['--print', prompt], {
+        cwd,
+        env: { ...process.env },
+        shell: true,
+      });
+    }
 
     let output = '';
 

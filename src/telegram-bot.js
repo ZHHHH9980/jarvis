@@ -117,16 +117,11 @@ function createBot(token, chatId, db) {
       return;
     }
 
-    // No project selected
-    if (!state.currentProject) {
-      bot.sendMessage(numericChatId, '请先用 /projects 选择一个项目');
-      return;
-    }
-
     // Send to Claude
     try {
       bot.sendMessage(numericChatId, '🤖 思考中...');
-      const output = await runClaude(text, state.currentProject.path);
+      const cwd = state.currentProject ? state.currentProject.path : '/root';
+      const output = await runClaude(text, cwd);
       const chunks = chunkMessage(output || '(empty response)', 4000);
       for (const chunk of chunks) {
         await bot.sendMessage(numericChatId, chunk);

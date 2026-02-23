@@ -2,10 +2,12 @@ const { spawn } = require('child_process');
 
 const SSH_HOST = process.env.SSH_HOST || '';
 const SSH_USER = process.env.SSH_USER || 'root';
+const API_BASE = process.env.ANTHROPIC_API_BASE || 'https://api.anthropic.com';
+const API_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN || '';
 
 // Strip ANSI escape codes from TTY output
 function stripAnsi(str) {
-  return str.replace(/\x1B\[[^@-~]*[@-~]|\x1B\][^\x07]*\x07|\x1B[^[\]].|\r/g, '');
+  return str.replace(/\x1B\[[^@-~]*[@-~]|\x1B\][^\x07]*\x07|\x1B[^[\]].|[\r]/g, '');
 }
 
 function chunkMessage(text, maxLen = 4000) {
@@ -16,6 +18,36 @@ function chunkMessage(text, maxLen = 4000) {
   return chunks.length ? chunks : [''];
 }
 
+// Fast path: direct API call, no CLI overhead
+async function chatAPI(prompt, systemPrompt) {
+  const messages = [{ role: 'user', content: prompt }];
+  const body = {
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    messages,
+  };
+  if (systemPrompt) body.system = systemPrompt;
+
+  const res = await fetch(`${API_BASE}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': API_TOKEN,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  return data.content.map((b) => b.text).join('');
+}
+
+// Slow path: CLI via SSH with full tool access
 function runClaude(prompt, cwd, onChunk) {
   return new Promise((resolve, reject) => {
     let proc;
@@ -63,4 +95,4 @@ function runClaude(prompt, cwd, onChunk) {
   });
 }
 
-module.exports = { runClaude, chunkMessage };
+module.exports = { runClaude, chatAPI, chunkMessage };

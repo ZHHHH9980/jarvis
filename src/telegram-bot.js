@@ -1,7 +1,7 @@
 const os = require('os');
 const { execSync } = require('child_process');
 const TelegramBot = require('node-telegram-bot-api');
-const { runClaude, chunkMessage } = require('./claude-runner.js');
+const { runClaude, chatAPI, chunkMessage } = require('./claude-runner.js');
 const { init: initNotifier } = require('./notifier.js');
 
 function createBot(token, chatId, db) {
@@ -97,6 +97,23 @@ function createBot(token, chatId, db) {
     bot.sendMessage(numericChatId, 'V2 功能，当前请手动操作');
   });
 
+  // /run — execute with full tool access via Claude CLI
+  bot.onText(/\/run (.+)/, async (msg, match) => {
+    if (!auth(msg)) return;
+    const prompt = match[1];
+    const cwd = state.currentProject ? state.currentProject.path : '/root';
+    try {
+      bot.sendMessage(numericChatId, `🔧 执行中... (${state.currentProject?.name || 'default'})`);
+      const output = await runClaude(prompt, cwd);
+      const chunks = chunkMessage(output || '(empty)', 4000);
+      for (const chunk of chunks) {
+        await bot.sendMessage(numericChatId, chunk);
+      }
+    } catch (err) {
+      bot.sendMessage(numericChatId, `错误: ${err.message}`);
+    }
+  });
+
   // General message handler
   bot.on('message', async (msg) => {
     if (!auth(msg)) return;
@@ -117,11 +134,13 @@ function createBot(token, chatId, db) {
       return;
     }
 
-    // Send to Claude
+    // Send to Claude (fast API path)
     try {
       bot.sendMessage(numericChatId, '🤖 思考中...');
-      const cwd = state.currentProject ? state.currentProject.path : '/root';
-      const output = await runClaude(text, cwd);
+      const sys = state.currentProject
+        ? `你是 Jarvis，一个智能助手。当前项目: ${state.currentProject.name} (${state.currentProject.path})`
+        : '你是 Jarvis，一个智能助手。简洁回复。';
+      const output = await chatAPI(text, sys);
       const chunks = chunkMessage(output || '(empty response)', 4000);
       for (const chunk of chunks) {
         await bot.sendMessage(numericChatId, chunk);
